@@ -8,7 +8,7 @@ export WEB, WEB_EMBED, WEB_CREATOR, WEB_MUSIC, WEB_MOBILE, ANDROID, ANDROID_EMBE
 
 import JSON, HTTP
 import URIs: URI
-import ..nyasTube, ..nyasTube.Utils
+import ..nyasTube, ..nyasTube.Utils, ..nyasTube.Request
 import ..nyasTube.Utils: header
 import ..nyasTube.Request: default_requester_p
 
@@ -61,7 +61,7 @@ function refresh!(token::BearerToken; force = false, req = default_requester_p[]
         "grant_type"    => "refresh_token",
         "refresh_token" => token.refresh
     )
-    response = req(:POST, "https://oauth2.googleapis.com/token"; headers = Utils.json_content_header, body)
+    response = req(:POST, "https://oauth2.googleapis.com/token"; headers = Request.json_content_header, body)
     response_json = JSON.parse(String(response.body))
     token.access = response_json["access_token"]
     token.expires = response_json["expires_in"] + start
@@ -75,7 +75,7 @@ function fetch!(token::BearerToken; req = default_requester_p[])
         "client_id" => tv_client_id,
         "scope"     => "https://www.googleapis.com/auth/youtube"
     )
-    response = req(:POST, "https://oauth2.googleapis.com/device/code"; headers = Utils.json_content_header, body)
+    response = req(:POST, "https://oauth2.googleapis.com/device/code"; headers = Request.json_content_header, body)
     response_json = JSON.parse(String(response.body))
     println("open \"$(response_json.verification_url)\" on browser,\nand input code \"$(response_json.user_code)\"")
     println("press enter after completing this step"); readline()
@@ -85,7 +85,7 @@ function fetch!(token::BearerToken; req = default_requester_p[])
         "device_code"   => response_json["device_code"],
         "grant_type"    => "urn:ietf:params:oauth:grant-type:device_code"
     )
-    response = req(:POST, "https://oauth2.googleapis.com/token"; headers = Utils.json_content_header, body)
+    response = req(:POST, "https://oauth2.googleapis.com/token"; headers = Request.json_content_header, body)
     response_json = JSON.parse(String(response.body))
     token.access = response_json["access_token"]
     token.expires = response_json["expires_in"] + start
@@ -104,7 +104,7 @@ end
 
 function (client::ClientType)(endpoint, body; token::AllowedTokenTypes = nothing, req = default_requester_p[])
     query = Dict{String, Any}("prettyPrint" => false)
-    headers = header(Utils.json_content_header, "user-agent" => client.user_agent)
+    headers = header(Request.json_content_header, "user-agent" => client.user_agent)
     if token ≡ nothing
         push!(query, "key" => deafult_api_key)
     else
@@ -116,8 +116,7 @@ function (client::ClientType)(endpoint, body; token::AllowedTokenTypes = nothing
         end
         push!(headers, "authorization" => "Bearer $(token_str)")
     end
-    uri = URI(; scheme = "https", host = "www.youtube.com", path = endpoint, query)
-    response = req(:POST, string(uri); headers, body)
+    response = req(:POST, "https://www.youtube.com$endpoint"; headers, body, query)
     return JSON.parse(String(response.body))
 end
 
@@ -157,6 +156,8 @@ function next(client::ClientType, continuation::String; req = default_requester_
     )
     return client("/youtubei/v1/next", body; #=token,=# req)
 end
+next(client::ClientType, playlist_id, video_id; req = default_requester_p[]) =
+        next(client, Dict("playlistId" => playlist_id, "videoId" => video_id); req)
 function next(client::ClientType, body::AbstractDict; req = default_requester_p[])
     _body = Dict{String, Any}(body)
     push!(_body, "context" => Dict("client" => client.client_context))

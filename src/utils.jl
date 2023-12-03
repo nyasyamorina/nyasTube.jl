@@ -1,5 +1,7 @@
 module Utils
 
+import Printf
+
 """
     header([header..., [headers...]])
 
@@ -16,8 +18,6 @@ function header(h...)
     end
     return result
 end
-
-const json_content_header = header("content-type" => "application/json; charset=UTF-8")
 
 function is_video_id(video_id::AbstractString)
     is_valid_char(c) = '0' ≤ c ≤ '9' || 'A' ≤ c ≤ 'Z' || 'a' ≤ c ≤ 'z' || c ∈ ('_', '-')
@@ -41,8 +41,43 @@ function safefilename(str::AbstractString, max_length::Union{Nothing, Integer} =
         '/', '\\', '?', '%', '*', ':', '|', '\"', '<', '>'#=, '.', ',', ';', '=', ' '=#
     ]
     @assert ~any(collect(replaceby) .∈ invalid) "the replacing string cannot have invalid characters"
-    str = replace(str, char => replaceby for char ∈ invalid)
+    str = replace(str, (char => replaceby for char ∈ invalid)...)
     return max_length ≡ nothing ? str : str[1:max_length]
 end
-    
+
+"""
+    newpath(path [; ext])
+
+Return a path that does not currently point to anything.
+
+If `path` is a file path with extension, then `has_ext` need to be `true` to
+ensure the file extension is not changed.
+"""
+function newpath(path::AbstractString, has_ext::Bool = false)
+    (base_path, ext) = has_ext ? splitext(path) : (path, "")
+    ispath(path) || return path
+    counting = 1
+    while true
+        new_path = base_path * " ($counting)" * ext
+        ispath(new_path) || return new_path
+        counting += 1
+    end
+end
+
+"convert duration time (in second) to format `HH:MM:SS.MS`"
+function prettytime(duration::Real; ms::Bool = false)
+    # maybe there is already implemented in Julia?
+    s, MS = divrem(duration, 1) |> (xy -> round.(Int, xy .* (1, 1000)))
+    ~ms && MS ≥ 500 && (s += 1)
+    m, S  = divrem(s, 60)
+    H, M  = divrem(m, 60)
+    result = H == 0 ? "" : Printf.@sprintf "%02d:" H
+    result *= Printf.@sprintf "%02d:%02d" M S
+    ms && (result *= Printf.@sprintf ".%03d" MS)
+    return result
+end
+
+struct SomethingOrZero{T} <: Function end
+(::SomethingOrZero{T})(args::Union{Nothing, T}...) where {T} = something(args..., zero(T))
+
 end # Utils

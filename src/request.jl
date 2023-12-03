@@ -5,15 +5,19 @@ export Requester, default_requester_p, encodebody
 import JSON, HTTP
 import ..nyasTube.Utils: header
 
+const json_content_header = header("content-type" => "application/json; charset=UTF-8")
+
+# see more: https://juliaweb.github.io/HTTP.jl/stable/client/#Keyword-Arguments
+
 "overwrite the method `HTTP.request` with some default arguments, see also [`HTTP.request`](@ref)"
 mutable struct Requester
     headers::Dict{String, String}
     keywords::Dict{Symbol, Any}
 
-    function Requester(; headers = nothing, keywords...)
-        kw = Dict{Symbol, Any}(keywords)
-        haskey(kw, :retry) || push!(kw, :retry => false)
-        return new(header(headers), kw)
+    function Requester(; headers = HTTP.Header[], kw...)
+        keywords = Dict{Symbol, Any}(kw)
+        haskey(kw, :retry) || push!(keywords, :retry => false)
+        return new(header(headers), keywords)
     end
 end
 
@@ -28,15 +32,16 @@ function Base.setproperty!(r::Requester, sym::Symbol, v)
     r.keywords[sym] = v
 end
 
-function (req::Requester)(method, url; headers = nothing, body = HTTP.nobody, keywords...)
+HTTP.open(iofunction::Function, req::Requester, methods, url; headers = HTTP.Header[], kw...) = 
+        req(methods, url; headers, iofunction, kw...)
+function (req::Requester)(method, url; headers = HTTP.Header[], body = HTTP.nobody, kw...)
     total_headers = header(req.headers, headers)
-    # fall back to the default behavior of `HTTP.request` if there is no header
-    final_headers = isempty(total_headers) ? nothing : total_headers
-    return HTTP.request(method, url, final_headers, encodebody(body); req.keywords..., keywords...)
+    return HTTP.request(method, url, total_headers, encodebody(body); req.keywords..., kw...)
 end
 
 # just for testing...
-nyasrequest(args...; keywords...) = (@show (args, keywords); HTTP.request(args...; keywords...))
+nyasrequest(args...; kw...) = (@show (args, kw); HTTP.request(args...; kw...))
+nyasopen(args...; kw...) = (@show (args, kw); HTTP.open(args..., kw...))
 
 "the reference of default requester for global usage"
 const default_requester_p = Ref(Requester(; headers = ["accept-language" => "en-US,en", "accept-encoding" => "gzip, deflate"]))
