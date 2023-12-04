@@ -1,5 +1,3 @@
-module Utils
-
 import Printf
 
 """
@@ -79,5 +77,3 @@ end
 
 struct SomethingOrZero{T} <: Function end
 (::SomethingOrZero{T})(args::Union{Nothing, T}...) where {T} = something(args..., zero(T))
-
-end # Utils

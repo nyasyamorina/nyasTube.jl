@@ -1,5 +1,3 @@
-module Request
-
 export Requester, default_requester_p, encodebody
 
 import JSON, HTTP
@@ -50,5 +48,3 @@ encodebody(data::Vector{UInt8}) = data
 encodebody(io::IO) = io
 encodebody(str::AbstractString) = Vector{UInt8}(str)
 encodebody(dict::AbstractDict) = Vector{UInt8}(JSON.json(dict))
-
-end # Request

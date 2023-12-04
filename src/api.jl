@@ -1,6 +1,3 @@
-"the youtube internal v1 api"
-module APIs
-
 export BearerToken, refresh!, fetch!, fetch_bearer_token
 export ClientType, browse, next, player, search
 export WEB, WEB_EMBED, WEB_CREATOR, WEB_MUSIC, WEB_MOBILE, ANDROID, ANDROID_EMBED, ANDROID_CREATOR, ANDROID_MUSIC,
@@ -301,5 +298,3 @@ const TV_EMBED = ClientType(
     ),
     default_user_agent
 )
-
-end # APIs

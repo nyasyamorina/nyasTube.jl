@@ -1,5 +1,3 @@
-module Itags
-
 hasdata(itag) = haskey(dash_video, itag) || haskey(dash_audio, itag) || haskey(legacy, itag)
 isdash(itag) = haskey(dash_video, itag) || haskey(dash_audio, itag)
 hasvideo(itag) = haskey(dash_video, itag) || haskey(legacy, itag)
@@ -103,5 +101,3 @@ const legacy = Dict(
     300 => ( 720, 128, "H.264 HFR (Main, L3.2)", "AAC (LC)"),
     300 => (1080, 128, "H.264 HFR (Main, L4.0)", "AAC (LC)"),
 )
-
-end # Itags
