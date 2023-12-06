@@ -75,5 +75,30 @@ function prettytime(duration::Real; ms::Bool = false)
     return result
 end
 
+# https://en.wikipedia.org/wiki/Unit_prefix
+const unit_prefix = ("K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q")
+
+function unitprefix(range::UInt)
+    range == 0 && return " "
+    range ≤ length(unit_prefix) && return @inbounds unit_prefix[range]
+    return "×10^$(3range)"
+end
+
+"convert value to format `xxxK` or `xxxM`"
+function prettyunit(value::AbstractFloat; decimal::UInt = UInt(2))
+    prefix_range = zero(UInt)
+    while value > 1000
+        value /= 1000
+        prefix_range += 1
+    end
+    format = Printf.Format("%.$(decimal)f")
+    number = Printf.format(format, value)
+    return number * unitprefix(prefix_range)
+end
+prettyunit(value::Real; decimal::Integer = 2) = prettyunit(Float64(value); decimal = UInt(decimal))
+
 struct SomethingOrZero{T} <: Function end
 (::SomethingOrZero{T})(args::Union{Nothing, T}...) where {T} = something(args..., zero(T))
+
+clearline(io::IO) = (print(io, "\r\e[K"); io)
+moveup(io::IO) = (print(io, "\e[A"); io)

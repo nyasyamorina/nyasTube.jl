@@ -8,10 +8,10 @@ const default_download_dir = joinpath(cache_dir, "download")
 include("error.jl")
 include("sort.jl")
 include("filter.jl")
-module Itags;   include("itag.jl");    end
-module Utils;   include("utils.jl");   end
-module Request; include("request.jl"); end
-module APIs;    include("api.jl");     end
+module Utils;    include("utils.jl");    end
+module Itags;    include("itag.jl");     end
+module Request;  include("request.jl");  end
+module APIs;     include("api.jl");      end
 include("download.jl")
 include("video.jl")
 include("stream.jl")

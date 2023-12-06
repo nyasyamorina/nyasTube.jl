@@ -33,15 +33,14 @@ function Stream(dict::Dict{String, Any}; video = missing)
 end
 
 function Base.show(io::IO, s::Stream)
-    print(io, Stream, '(',
-        "itag: ", s.itag,
-        ", duration: ", Utils.prettytime(s.duration; ms = true),
-        ", type: \"", s.type, '/', s.format, "\", ",
-        ", bitrate: ", s.bitrate,
-        any((s.height, s.width) .≡ nothing) ? "" : ", resolution: $(s.width)x$(s.height)",
-        s.filesize ≡ missing ? "" : ", size: $(s.filesize)",
-        ")"
-    )
+    print(io, Stream, '(')
+    print(io, "itag: ", s.itag)
+    print(io, ", duration: ", Utils.prettytime(s.duration; ms = true))
+    print(io, ", type: ", s.type, '/', s.format, '\"')
+    print(io, ", bitrate: ", s.bitrate, "B/s")
+    all((s.height, s.width) .≢ nothing) && print(io, ", resolution: ", s.width, 'x', s.height)
+    s.filesize ≡ missing || print(io, ", size: ", s.filesize, "B")
+    print(io, ')')
 end
 
 itag(s::Stream) = s.itag
@@ -62,6 +61,7 @@ const is_webm   = Filter(s -> s.format == ".webm")
 const has_audio = Filter(hasaudio)
 const has_video = Filter(hasvideo)
 const is_dash   = Filter(Itags.isdash ∘ itag)
+const file_size = Sorter(filesize)
 const video_quality = Sorter(Utils.SomethingOrZero{Int}() ∘ Itags.resolution ∘ itag)
 const audio_quality = Sorter(Utils.SomethingOrZero{Int}() ∘ Itags.bitrate    ∘ itag)
 
@@ -76,8 +76,7 @@ end
 function Base.download(s::Stream, file_path::AbstractString; force = false, req = default_requester_p[], kw...)
     force || (file_path = Utils.newpath(file_path, true))
     mkpath(dirname(file_path))
-    downloadfile(s.url, file_path, filesize(s; req); req, kw...)
-    return file_path
+    return downloadfile(s.url, file_path, filesize(s; req); req, kw...)
 end
-Base.download(s::Stream; force = false, req = default_requester_p[]) =
-        download(s, joinpath(default_download_dir, filename(s)); force, req)
+Base.download(s::Stream; force = false, req = default_requester_p[], kw...) =
+        download(s, joinpath(default_download_dir, filename(s)); force, req, kw...)
