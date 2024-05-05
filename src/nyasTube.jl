@@ -1,18 +1,22 @@
 module nyasTube
 
-# TODO: learn how to make a proper julia package
+using nyasHttp
+
+const req_opts = nyasHttp.RequestOptions([
+    "accept-language" => "en-US,en",
+    "accept-encoding" => "gzip, deflate"
+])
 
 const cache_dir = joinpath(dirname(@__DIR__), ".cache")
 const default_download_dir = joinpath(cache_dir, "download")
 
-include("error.jl")
 include("sort.jl")
 include("filter.jl")
-module Utils;    include("utils.jl");    end
-module Itags;    include("itag.jl");     end
-module Request;  include("request.jl");  end
-module APIs;     include("api.jl");      end
+include("utils.jl")
+include("itag.jl")
+include("api.jl")
 include("download.jl")
+#include("channel.jl")
 include("video.jl")
 include("stream.jl")
 
@@ -24,5 +28,5 @@ function __init__()
 end
 
 # but, well, `TODO` for me just means `to do nothing now`
- 
+
 end # nyasTube

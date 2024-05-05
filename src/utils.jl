@@ -1,21 +1,11 @@
-import Printf
+module Utils
 
-"""
-    header([header..., [headers...]])
+import Printf, Base64, HTTP, JSON
 
-the argument `headers` in `HTTP.request` accepts wide range of types,
-this function will unify them into `Dict{String, String}`
-"""
-function header(h...)
-    result = Dict{String, String}()
-    update = pair -> (result[string(pair.first)] = string(pair.second))
-    for hh ∈ h
-        hh ≡ nothing && continue
-        hh isa Pair && (update(hh); continue)
-        foreach(update, hh)
-    end
-    return result
-end
+encodebody(data::Vector{UInt8}) = data
+encodebody(io::IO) = io
+encodebody(str::AbstractString) = Vector{UInt8}(str)
+encodebody(dict::AbstractDict) = Vector{UInt8}(JSON.json(dict))
 
 function is_video_id(video_id::AbstractString)
     is_valid_char(c) = '0' ≤ c ≤ '9' || 'A' ≤ c ≤ 'Z' || 'a' ≤ c ≤ 'z' || c ∈ ('_', '-')
@@ -23,12 +13,9 @@ function is_video_id(video_id::AbstractString)
     return all(is_valid_char.(collect(video_id)))
 end
 
-function parse_video_id(url::AbstractString; not_found_error = false)
+function parse_video_id(url::AbstractString)
     m = match(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
-    if m ≡ nothing
-        not_found_error && throw(ArgumentError("could not found a video id in \"$url\""))
-        return nothing
-    end
+    m ≡ nothing && return nothing
     return m[1]
 end
 
@@ -79,7 +66,7 @@ end
 const unit_prefix = ("K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q")
 
 function unitprefix(range::UInt)
-    range == 0 && return " "
+    range == 0 && return ""
     range ≤ length(unit_prefix) && return @inbounds unit_prefix[range]
     return "×10^$(3range)"
 end
@@ -102,3 +89,59 @@ struct SomethingOrZero{T} <: Function end
 
 clearline(io::IO) = (print(io, "\r\e[K"); io)
 moveup(io::IO) = (print(io, "\e[A"); io)
+
+# rewrite from https://github.com/iv-org/protodec/blob/9e02d88a19f7b948877f0650297dad4949188e52/src/protodec/utils.cr
+
+function protodec_write(io, value::Unsigned)    # type => "varint"
+    value == 0 && return write(io, 0x00)
+    while value ≠ 0
+        byte = UInt8(value & 0x7F)
+        value >>= 7
+        value == 0 || (byte |= 0x80)
+        write(io, byte)
+    end
+end
+protodec_write(io, value::Signed) = protodec_write(io, unsigned(value))
+
+function protodec_write(io, str::AbstractString)  # type => "string"
+    protodec_write(io, sizeof(str))
+    print(io, str)
+end
+
+function protodec_write(io, json::Union{AbstractArray, AbstractDict})  # type => "embedded"
+    new_io = IOBuffer()
+    protodec_from_json(new_io, json)
+    buffer = take!(new_io)
+    close(new_io)
+    protodec_write(io, length(buffer))
+    write(io, buffer)
+end
+
+function protodec_from_json(io, json)
+    @show "start json"
+    for (field::Integer, value) ∈ json
+        @show field
+        type_id = value isa Integer ? 0 #="varint"=# : 2 #="string"||"embedded"=#
+        header = (field << 3) | type_id
+        protodec_write(io, header)
+        protodec_write(io, value)
+    end
+    @show "end json"
+end
+
+function protodec_encode_json(json)::String
+    #=```crystal
+    json.try { |i| Protodec::Any.cast_json(i) }.try { |i| Protodec::Any.from_json(i) }
+        .try { |i| Base64.urlsafe_encode(i) }  .try { |i| URI.encode_www_form(i) }
+    ```=#
+    io = IOBuffer()
+    b64_io = Base64.Base64EncodePipe(io)
+    protodec_from_json(b64_io, json)
+    close(b64_io)
+    s = String(take!(io))
+    close(io)
+    s = HTTP.escape(s)
+    return s
+end
+
+end # Utils

@@ -1,5 +1,4 @@
-import .Utils: header
-import .Request: default_requester_p
+import ..nyasTube: req_opts
 
 const KiB = 1000
 const KB  = 1024
@@ -49,7 +48,7 @@ function finish!(p::ProgessBar, current = time_ns(); show = true)
     p.spinner_index = 0
     p.n = p.total
     p.time = current
-    if show 
+    if show
         updatescreen(p)
         println(p.io)
     end
@@ -87,19 +86,19 @@ function updatescreen(p::ProgessBar)
         eta_str = eta > 24 * 3600 ? "∞" : Utils.prettytime(eta)
         print(p.io, "ETA: ", eta_str)
     end
-    
+
     p.showed = true
     return p
 end
 
-function downloadfile(url, file_path, file_size; threads = 1, chunck_size = 64KB, req = default_requester_p[])
-    threads == 1 && return _single_thread_download(url, file_path, file_size; req)
-    return _multi_threads_download(url, file_path, file_size; threads, chunck_size, req)
+function downloadfile(url, file_path, file_size; threads = 1)
+    threads == 1 && return _single_thread_download(url, file_path, file_size)
+    return _multi_threads_download(url, file_path, file_size; threads)
 end
 
-function _single_thread_download(url, file_path, file_size; req)
+function _single_thread_download(url, file_path, file_size)
     # rewrited from `HTTP.download`
-    HTTP.open(req, :GET, url) do stream
+    nyasHttp.open(req_opts, :GET, url) do stream
         response = HTTP.startread(stream)
         eof(stream) && return
 
@@ -123,50 +122,98 @@ function _single_thread_download(url, file_path, file_size; req)
     return file_path
 end
 
-function _multi_threads_download(url, file_path, file_size; threads, chunck_size, req)
-    avg_size = file_size ÷ threads
-    extra_size = file_size - avg_size * threads
-    getted_sizes = zeros(UInt, threads)
+function _spawn_download_task(file, url, start_bytes, stop_bytes, downloaded_bytes_ref)
+    return Threads.@spawn begin
+        headers = ["range" => "bytes=$start_bytes-$stop_bytes"]
+        nyasHttp.open(req_opts, :GET, url, headers) do stream
+            @debug "start downloading bytes from $start_bytes to $stop_bytes..."
+            response = HTTP.startread(stream)
 
-    @info "downloading a file of size $file_size bytes to \"$file_path\" using $threads threads..."
-    download_tasks = map(1:threads) do index
-        @task begin
-            start = avg_size * (index - 1) + min(extra_size, index - 1)
-            stop = start + avg_size + Int(index ≤ extra_size) - 1
-
-            @debug "strart download task $index from bytes $start to $stop..."
-            headers = header("range" => "bytes=$start-$stop")
-            HTTP.open(req, :GET, url; headers) do stream
-                response = HTTP.startread(stream)
-
-                # TODO: download directly into one file instead of
-                # downloading into multiple files and then merge them
-                open(joinpath(cache_dir, "$index.dat"); write = true) do dat
-                    while ~eof(stream)
-                        getted_sizes[index] += write(dat, readavailable(stream))
-                    end
+            open(file; append = true) do file
+                seek(file, start_bytes)
+                # If the connection is accidentally disconnected,
+                # the task will fall into the infinite loop in `eof(::SSLStream)` and cannot return.
+                # Report to `HTTP.jl` or `OpenSSL.jl` is needed.
+                while ~eof(stream)
+                    downloaded_bytes_ref[] += write(file, readavailable(stream))
                 end
             end
-            @debug "download task $index done"
+
+            @debug "downloading bytes from $start_bytes to $stop_bytes is done."
         end
+        nothing # https://github.com/JuliaLang/julia/issues/40626
+    end
+end
+
+mutable struct DownloadTask
+    file::String
+    url::String
+    start_bytes::Int
+    stop_bytes::Int
+    downloaded_bytes::Vector{Int}
+    tasks::Vector{Task}
+    last_update_bytes::Int
+    last_update_time::Float64
+
+    function DownloadTask(file, url, start_bytes, stop_bytes)
+        downloaded_bytes = Int[0]
+        task = _spawn_download_task(file, url, start_bytes, stop_bytes, Ref(downloaded_bytes, 1))
+        return new(file, url, start_bytes, stop_bytes, downloaded_bytes, [task], 0, time())
+    end
+end
+stoptask(task::DownloadTask) = istaskdone(workingtask(task)) || schedule(workingtask(task), InterruptException(); error = true)
+workingtask(task::DownloadTask) = task.tasks[end]
+downloaded_bytes(task::DownloadTask) = task.last_update_bytes
+Base.istaskdone(task::DownloadTask) = task.start_bytes + task.last_update_bytes == task.stop_bytes + 1
+
+function check_and_restart_task(task::DownloadTask; time_out = 15.0, max_retries = 4)
+    istaskdone(task) && return
+
+    if task.downloaded_bytes[end] ≠ task.last_update_bytes
+        # Downloading bytes means that the task does not fall into an infinite loop
+        task.last_update_bytes = task.downloaded_bytes[end]
+        task.last_update_time = time()
+    elseif time() - task.last_update_time > time_out
+        # Restart downloading task if the task falls into an infinite loop
+        stoptask(task)
+        @debug "kiiled downloading task that should stop at bytes $(task.stop_bytes)"
+        length(task.tasks) - 1 > max_retries && throw(error("download task faild"))
+        start_bytes = task.start_bytes + task.last_update_bytes
+        push!(task.downloaded_bytes, task.last_update_bytes)
+        bytes_ref = Ref(task.downloaded_bytes, length(task.downloaded_bytes))
+        new_task = _spawn_download_task(task.file, task.url, start_bytes, task.stop_bytes, bytes_ref)
+        push!(task.tasks, new_task)
+    end
+end
+
+function _multi_threads_download(url, file_path, file_size; threads)
+    avg_size = file_size ÷ threads
+    extra_size = file_size - avg_size * threads
+
+    open(file -> seek(file, file_size), file_path; write = true)
+
+    @info "downloading a file with $file_size bytes to \"$file_path\" using $threads threads..."
+    download_tasks = map(1:threads) do index
+        start = avg_size * (index - 1) + min(extra_size, index - 1)
+        stop = start + avg_size + Int(index ≤ extra_size) - 1
+        DownloadTask(file_path, url, start, stop)
     end
 
-    p = ProgessBar(file_size)
-    schedule.(download_tasks)
-    while ~all(istaskdone.(download_tasks))
-        sleep(1)
-        update!(p, sum(getted_sizes))
-    end
-    finish!(p)
-
-    open(file_path; write = true) do file
-        for index ∈ 1:threads
-            dat_file = joinpath(cache_dir, "$index.dat")
-            open(dat_file) do dat
-                write(file, read(dat))  # heavy memory use
-            end
-            rm(dat_file)
+    try
+        p = ProgessBar(file_size)
+        # note: for unreasonable reason, `all(t -> istaskdone(t.task), download_tasks)`
+        # will also block the main thread if there is a task fall into an infinite loop.
+        while p.n < file_size
+            sleep(progress_bar_update_time)
+            check_and_restart_task.(download_tasks)
+            update!(p, sum(downloaded_bytes, download_tasks))
         end
+        finish!(p)
+
+    finally
+        stoptask.(download_tasks)
+        @info map(t -> length(t.tasks), download_tasks)
+        @info map(t -> istaskdone.(t.tasks), download_tasks)
     end
     return file_path
 end

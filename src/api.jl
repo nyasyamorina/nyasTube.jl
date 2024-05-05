@@ -1,14 +1,17 @@
+module APIs
+
 export BearerToken, refresh!, fetch!, fetch_bearer_token
 export ClientType, browse, next, player, search
 export WEB, WEB_EMBED, WEB_CREATOR, WEB_MUSIC, WEB_MOBILE, ANDROID, ANDROID_EMBED, ANDROID_CREATOR, ANDROID_MUSIC,
         IOS, IOS_EMBED, IOS_CREATOR, IOS_MUSIC, TV_EMBED
 
-import JSON, HTTP
+import JSON, nyasHttp
 import URIs: URI
-import ..nyasTube, ..nyasTube.Utils, ..nyasTube.Request
-import ..nyasTube.Utils: header
-import ..nyasTube.Request: default_requester_p
+import ..nyasTube, ..nyasTube.Utils
+import ..nyasTube: req_opts
+import ..nyasTube.Utils: encodebody
 
+const json_content_header = "content-type" => "application/json; charset=UTF-8"
 const default_token_file = joinpath(nyasTube.cache_dir, "token.json")
 const max_time = prevfloat(typemax(typeof(time()))) # = 1.7976931348623157e308
 
@@ -48,7 +51,7 @@ function JSON.lower(token::BearerToken)
 end
 
 "refresh the bearer token"
-function refresh!(token::BearerToken; force = false, req = default_requester_p[])
+function refresh!(token::BearerToken; force = false)
     force || token.expires < time() || return
     token.refresh ≡ missing && throw(MissingException("need to provide `BearerToken::refresh`"))
     start = trunc(Int, time()) - 30
@@ -58,7 +61,7 @@ function refresh!(token::BearerToken; force = false, req = default_requester_p[]
         "grant_type"    => "refresh_token",
         "refresh_token" => token.refresh
     )
-    response = req(:POST, "https://oauth2.googleapis.com/token"; headers = Request.json_content_header, body)
+    response = nyasHttp.post(req_opts, "https://oauth2.googleapis.com/token", [json_content_header], encodebody(body))
     response_json = JSON.parse(String(response.body))
     token.access = response_json["access_token"]
     token.expires = response_json["expires_in"] + start
@@ -66,13 +69,13 @@ function refresh!(token::BearerToken; force = false, req = default_requester_p[]
 end
 
 "fetch a bearer token, need to do some something on your browser"
-function fetch!(token::BearerToken; req = default_requester_p[])
+function fetch!(token::BearerToken)
     start = trunc(Int, time()) - 30
     body = Dict(
         "client_id" => tv_client_id,
         "scope"     => "https://www.googleapis.com/auth/youtube"
     )
-    response = req(:POST, "https://oauth2.googleapis.com/device/code"; headers = Request.json_content_header, body)
+    response = nyasHttp.post(req_opts, "https://oauth2.googleapis.com/device/code", [json_content_header], encodebody(body))
     response_json = JSON.parse(String(response.body))
     println("open \"$(response_json.verification_url)\" on browser,\nand input code \"$(response_json.user_code)\"")
     println("press enter after completing this step"); readline()
@@ -82,7 +85,7 @@ function fetch!(token::BearerToken; req = default_requester_p[])
         "device_code"   => response_json["device_code"],
         "grant_type"    => "urn:ietf:params:oauth:grant-type:device_code"
     )
-    response = req(:POST, "https://oauth2.googleapis.com/token"; headers = Request.json_content_header, body)
+    response = nyasHttp.post(req_opts, "https://oauth2.googleapis.com/token", [json_content_header], encodebody(body))
     response_json = JSON.parse(String(response.body))
     token.access = response_json["access_token"]
     token.expires = response_json["expires_in"] + start
@@ -91,7 +94,7 @@ function fetch!(token::BearerToken; req = default_requester_p[])
 end
 
 "fetch a bearer token, need to do some something on your browser"
-fetch_bearer_token(; req = default_requester_p[]) = fetch!(BearerToken(); req)
+fetch_bearer_token() = fetch!(BearerToken())
 
 "use client type to specify some request value `{\"context\": {\"client\": {...}}}`"
 mutable struct ClientType
@@ -99,41 +102,38 @@ mutable struct ClientType
     user_agent::String
 end
 
-function (client::ClientType)(endpoint, body; token::AllowedTokenTypes = nothing, req = default_requester_p[])
+function (client::ClientType)(endpoint, body; token::AllowedTokenTypes = nothing)
     query = Dict{String, Any}("prettyPrint" => false)
-    headers = header(Request.json_content_header, "user-agent" => client.user_agent)
+    headers = [json_content_header, "user-agent" => client.user_agent]
     if token ≡ nothing
         push!(query, "key" => deafult_api_key)
     else
         token_str = if token isa BearerToken
-            token.access ≢ missing ? refresh!(token; req) : fetch!(token; req)
+            token.access ≢ missing ? refresh!(token) : fetch!(token)
             token.access
         else    # token isa AbstractString
             token
         end
         push!(headers, "authorization" => "Bearer $(token_str)")
     end
-    response = req(:POST, "https://www.youtube.com$endpoint"; headers, body, query)
+    response = nyasHttp.post(req_opts, "https://www.youtube.com$endpoint", headers, encodebody(body); query)
     return JSON.parse(String(response.body))
 end
 
 # wrap around `client(...)`
 
-#function resolve_url(client, url) end
-#function get_transcript(client; params) end
-#function get_transcript(client, video_id) end
-#function verify_age(client, video_id) end
-
-function browse(client::ClientType, continuation::String; req = default_requester_p[])
+function browse(continuation::AbstractString; client = WEB)
     body = Dict{String, Any}(
         "continuation" => continuation,
         "context"      => Dict(
             "client"   => client.client_context
         )
     )
-    return client("/youtubei/v1/browse", body; #=token,=# req)
+    return client("/youtubei/v1/browse", body; #=token=#)
 end
-function browse(client::ClientType, browse_id::String; params::Union{Nothing, String} = nothing, req = default_requester_p[])
+# Julia does not allow function overloading with different numbers of keyword parameters,
+# so defind `browse(browse_id, params)` instead of `browse(browse_id; params)`
+function browse(browse_id::AbstractString, params::Union{Nothing, AbstractString}; client = WEB)
     body = Dict{String, Any}(
         "browseId"   => browse_id,
         "context"    => Dict(
@@ -141,27 +141,46 @@ function browse(client::ClientType, browse_id::String; params::Union{Nothing, St
         )
     )
     params ≡ nothing || push!(body, "params" => params)
-    return client("/youtubei/v1/browse", body; #=token,=# req)
+    return client("/youtubei/v1/browse", body; #=token=#)
 end
 
-function next(client::ClientType, continuation::String; req = default_requester_p[])
+#=function get_transcript(video_id::AbstractString; client = WEB)
+    body = Dict{String, Any}(
+        "videoId" => video_id,
+        "context"    => Dict(
+            "client" => client.client_context
+        )
+    )
+    return client("/youtubei/v1/get_transcript", body; #=token=#)
+end=#
+function get_transcript(params::AbstractString; client = WEB)
+    body = Dict{String, Any}(
+        "params" => params,
+        "context"    => Dict(
+            "client" => client.client_context
+        )
+    )
+    return client("/youtubei/v1/get_transcript", body; #=token=#)
+end
+
+function next(continuation::AbstractString; client = WEB)
     body = Dict{String, Any}(
         "continuation" => continuation,
         "context"      => Dict(
             "client"   => client.client_context
         )
     )
-    return client("/youtubei/v1/next", body; #=token,=# req)
+    return client("/youtubei/v1/next", body; #=token=#)
 end
-next(client::ClientType, playlist_id, video_id; req = default_requester_p[]) =
-        next(client, Dict("playlistId" => playlist_id, "videoId" => video_id); req)
-function next(client::ClientType, body::AbstractDict; req = default_requester_p[])
+next(playlist_id, video_id; client = WEB) =
+        next(client, Dict("playlistId" => playlist_id, "videoId" => video_id))
+function next(body::AbstractDict; client = WEB)
     _body = Dict{String, Any}(body)
     push!(_body, "context" => Dict("client" => client.client_context))
-    return client("/youtubei/v1/next", _body; #=token,=# req)
+    return client("/youtubei/v1/next", _body; #=token=#)
 end
 
-function player(client::ClientType, video_id::String; params::Union{Nothing, String} = nothing, req = default_requester_p[])
+function player(video_id::AbstractString; params::Union{Nothing, AbstractString} = nothing, client = WEB)
     body = Dict{String, Any}(
         "videoId"        => video_id,
         "contentCheckOk" => true,
@@ -171,10 +190,20 @@ function player(client::ClientType, video_id::String; params::Union{Nothing, Str
         )
     )
     params ≡ nothing || push!(body, "params" => params)
-    return client("/youtubei/v1/player", body; #=token,=# req)
+    return client("/youtubei/v1/player", body; #=token=#)
 end
 
-function search(client::ClientType, search_query::String; params::Union{Nothing, String} = nothing, req = default_requester_p[])
+function resolve_url(url::AbstractString; client = WEB)
+    body = Dict{String, Any}(
+        "url" => url,
+        "context"        => Dict(
+            "client"     => client.client_context
+        )
+    )
+    return client("/youtubei/v1/navigation/resolve_url", body; #=token=#)
+end
+
+function search(search_query::AbstractString; params::Union{Nothing, AbstractString} = nothing, client = WEB)
     body = Dict{String, Any}(
         "query"      => search_query,
         "context"    => Dict(
@@ -182,7 +211,22 @@ function search(client::ClientType, search_query::String; params::Union{Nothing,
         )
     )
     params ≡ nothing || push!(body, "params" => params)
-    return client("/youtubei/v1/search", body; #=token,=# req)
+    return client("/youtubei/v1/search", body; #=token=#)
+end
+
+function verify_age(video_id::AbstractString; client = WEB)
+    body = Dict{String, Any}(
+        "nextEndpoint" => Dict(
+            "urlEndpoint" => Dict(
+                "url" => "/watch?v=$video_id"
+            )
+        ),
+        "setControvercy": true,
+        "context"    => Dict(
+            "client" => client.client_context
+        )
+    )
+    return client("/youtubei/v1/search", body; #=token=#)
 end
 
 # some deafult clients
@@ -298,3 +342,5 @@ const TV_EMBED = ClientType(
     ),
     default_user_agent
 )
+
+end # APIs

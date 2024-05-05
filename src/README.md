@@ -2,7 +2,8 @@
 
 A simple youtube video downloading module.
 
-* Yeah, this module is rewrited from [PyTube](https://github.com/pytube/pytube), just go to see that, not walking around here.
+* Yeah, this module is rewrited from [PyTube](https://github.com/pytube/pytube) and
+[invidious](https://github.com/iv-org/invidious), just go to see them, not walking around here.
 
 ---
 
@@ -19,6 +20,7 @@ Then you can use it to download a youtube video (at least that's how it works id
 ```julia
 # init a Video object
 video = nyasTube.Video("https://www.youtube.com/watch?v=Lworfif9Ck4")
+video = nyasTube.video"https://www.youtube.com/watch?v=Lworfif9Ck4" # use string macro
 # download the best quality video stream with the best audio
 download(video, "path/to/file.mp4"; threads = 16)
 ```
