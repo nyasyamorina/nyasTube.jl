@@ -9,10 +9,10 @@ A simple youtube video downloading module.
 
 ### 1. How to use it
 
-First, you need to include this module (not import, I don't know how to make a proper package in Julia).
+First, you need to import/using this module.
 
 ```julia
-include("src/nyasTube.jl")
+using nyasTube
 ```
 
 Then you can use it to download a youtube video (at least that's how it works ideally).
