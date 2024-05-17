@@ -1,17 +1,19 @@
-export player, playable, title, description, duration, aspectratio, author, streams
+export @video_str, player, playable, title, description, duration, uploaddate, aspectratio, author, channelid, streams
 
 import FFMPEG
+const date_time_format = "yyyy-mm-ddTHH:MM:SSzzzz"
 
 mutable struct Video
     id::String
+    client::APIs.ClientType
     player::Union{Missing, Dict{String, Any}}   # response json from youtube player api
 end
 
-function Video(url::String)
-    Utils.is_video_id(url) && return Video(url, missing)
+function Video(url::String, c = APIs.ANDROID_EMBED; client = c)
+    Utils.is_video_id(url) && return Video(url, client, missing)
     video_id = Utils.parse_video_id(url)
     video_id ≡ nothing && throw(ArgumentError("could not found a video id in \"$url\""))
-    return Video(video_id, missing)
+    return Video(video_id, client, missing)
 end
 macro video_str(url::String); Video(url); end
 
@@ -29,21 +31,25 @@ end
 
 # TODO: error handling for unplayable video, ie, live streaming, age restricted or so on
 
-player(v::Video) = v.player ≢ missing ? v.player :
-        (v.player = APIs.player(v.id; client = APIs.ANDROID_EMBED))
+function player(v::Video, c = v.client; client = c)
+    v.player ≢ missing && client == v.client && return v.player
+    v.player = APIs.player(v.id; client)
+    return v.player
+end
 
-playable(v::Video) = player(v)["playabilityStatus"]["status"] == "OK"
-title(v::Video) = player(v)["videoDetails"]["title"]
-description(v::Video) = player(v)["videoDetails"]["shortDescription"]
-duration(v::Video) = parse(Int, player(v)["videoDetails"]["lengthSeconds"])
-aspectratio(v::Video) = player(v)["streamingData"]["aspectRatio"]
-author(v::Video) = player(v)["videoDetails"]["author"]
-channelid(v::Video) = player(v)["videoDetails"]["channelId"]
+playable(v::Video) = getnode(player(v), "playabilityStatus\\status") == "OK"
+title(v::Video) = getnode(player(v), "videoDetails\\title")
+description(v::Video) = getnode(player(v), "videoDetails\\shortDescription")
+uploaddate(v::Video) = (t -> t ≡ missing ? t : ZonedDateTime(t, date_time_format))(getnode(player(v), "microformat\\playerMicroformatRenderer\\uploadDate"))
+duration(v::Video) = tryparsenode(Int, player(v), "videoDetails\\lengthSeconds")
+aspectratio(v::Video) = getnode(player(v), "streamingData\\aspectRatio")
+author(v::Video) = getnode(player(v), "videoDetails\\author")
+channelid(v::Video) = getnode(player(v), "videoDetails\\channelId")
 #channel(v::Video) = Channel(channelid(v), missing)
 streams(v::Video) = map(dict -> Stream(dict; video = v), stream_dicts(v))
 
 function stream_dicts(v::Video)
-    streamingData = player(v)["streamingData"]
+    streamingData = ensurenode(player(v), "streamingData")
     dicts = Vector{Dict{String, Any}}(undef, 0)
     haskey(streamingData, "formats") && append!(dicts, streamingData["formats"])
     haskey(streamingData, "adaptiveFormats") && append!(dicts, streamingData["adaptiveFormats"])

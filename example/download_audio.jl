@@ -12,7 +12,7 @@ const cache_path = joinpath(nyasTube.cache_dir, "channelid_name.json")
 channelid_name = if isfile(cache_path)
     JSON.parsefile(cache_path; dicttype = Dict{String, String})
 else
-    Dict{String, String}
+    Dict{String, String}()
 end
 
 const top_level = joinpath(ENV["OneDrive"], "a/A5MR/ori")
@@ -24,16 +24,10 @@ function one_audio()
 
     try
         println("\ngetting video information...")
-        v = nyasTube.Video(url)
+        v = nyasTube.Video(url; client = nyasTube.APIs.WEB)
         cid = nyasTube.channelid(v)
-        ss = nyasTube.Stream[]
-        try
-            ss = nyasTube.streams(v)
-        catch
-            # resolve: Playback on other websites has been disabled by the video owner
-            v.player = nyasTube.APIs.player(v.id; client = nyasTube.APIs.WEB)
-            ss = nyasTube.streams(v)
-        end
+        ss = nyasTube.streams(v)
+
         filter!(nyasTube.is_dash & nyasTube.has_audio, ss)
         s = sort!(ss; by = nyasTube.audio_quality)[end]
         file_name = nyasTube.filename(s)
@@ -41,11 +35,12 @@ function one_audio()
         itag = nyasTube.itag(s)
 
         println("================================")
-        println("title: $(nyasTube.title(v))")
-        println("author: $(nyasTube.author(v))")
-        println("channel id: $(nyasTube.channelid(v))")
-        println("itag: $(itag) $(itag == 251 ? "" : "(the itag of the highest audio quality is 251)")")
-        println("file size: $(file_size)MB")
+        println("title: ", title(v))
+        println("upload: ", uploaddate(v))
+        println("author: ", author(v))
+        println("channel id: ", channelid(v))
+        println("itag: ", itag, itag == 251 ? "" : "(the itag of the highest audio quality is 251)")
+        println("file size: ", file_size, "MB")
 
         println("\n <- enter file tile [default: $file_name]")
         _file_name = readline()
@@ -84,8 +79,9 @@ function one_audio()
             showerror(stdout, exc, bt)
             println()
         end
-        print("\n press enter to continue...")
+        print("\n press enter to exit...")
         readline()
+        exit()
     end
 end
 

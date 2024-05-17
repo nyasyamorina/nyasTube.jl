@@ -212,8 +212,8 @@ function _multi_threads_download(url, file_path, file_size; threads)
 
     finally
         stoptask.(download_tasks)
-        @info map(t -> length(t.tasks), download_tasks)
-        @info map(t -> istaskdone.(t.tasks), download_tasks)
+        #@info map(t -> length(t.tasks), download_tasks)
+        #@info map(t -> istaskdone.(t.tasks), download_tasks)
     end
     return file_path
 end

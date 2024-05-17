@@ -1,6 +1,6 @@
 module nyasTube
 
-using nyasHttp
+using nyasHttp, TimeZones
 
 const req_opts = nyasHttp.RequestOptions([
     "accept-language" => "en-US,en",
@@ -12,6 +12,7 @@ const default_download_dir = joinpath(cache_dir, "download")
 
 include("sort.jl")
 include("filter.jl")
+include("json.jl")
 include("utils.jl")
 include("itag.jl")
 include("api.jl")

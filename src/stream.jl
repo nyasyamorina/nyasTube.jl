@@ -19,17 +19,19 @@ mutable struct Stream
 end
 
 function Stream(dict::Dict{String, Any}; video = missing)
+    missing2nothing(x) = x ≡ missing ? nothing : x
+
     s = Stream(video, "", 0, "", "", [], 0, 0, nothing, nothing, missing)
-    s.url = dict["url"]
-    s.itag = dict["itag"]
-    (s.type, s.format, s.codecs) = split_mimeType(dict["mimeType"])
-    @assert 1 ≤ length(s.codecs) ≤ 2 "got an invalid mimeType: \"$(dict["mimeType"])\""
-    s.bitrate = dict["bitrate"]
-    # It seems like sometimes YouTube forgets to set this value
-    s.duration = parse(Int, get(dict, "approxDurationMs", "0")) // 1000
-    haskey(dict, "height") && (s.height = dict["height"])
-    haskey(dict, "width")  && (s.width  = dict["width"])
-    haskey(dict, "contentLength") && (s.filesize = parse(Int, dict["contentLength"]))
+    s.url = ensurenode(dict, "url")
+    s.itag = ensurenode(dict, "itag")
+    (s.type, s.format, s.codecs) = split_mimeType(ensurenode(dict, "mimeType"))
+    s.bitrate = ensurenode(dict, "bitrate")
+    # the video is not fully encoded if this value is not set by YouTube
+    duration = getnode(dict, "approxDurationMs")
+    s.duration = duration ≡ missing ? 0 : parse(Int, duration)
+    s.height = missing2nothing(getnode(dict, "height"))
+    s.height = missing2nothing(getnode(dict, "height"))
+    s.filesize = tryparsenode(Int, dict, "contentLength")
     return s
 end
 
