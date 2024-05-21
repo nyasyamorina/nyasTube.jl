@@ -37,15 +37,16 @@ function getnode(vec::AbstractVector, path::AbstractVector{<:AbstractString})
     return getnode(node, path)
 end
 
-function tryparsenode(::Type{T}, obj, path) where {T <: Real}
-    node = getnode(obj, path)
-    node ≡ missing && return missing
-    return tryparse(T, node)
-end
+tryparsenode(::Type{T}, obj, path) where {T} = skipmissing(x -> tryparse(T, x), getnode(obj, path))
 
 function ensurenode(obj, path)
     path isa AbstractVector && return ensurenode(obj, joinpath(path))
     node = getnode(obj, path)
     node ≡ missing && throw(NodeNotFoundException(path))
     return node
+end
+
+function skipmissing(f, args...)
+    any(ismissing, args) && return missing
+    return f(args...)
 end

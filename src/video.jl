@@ -1,7 +1,7 @@
 export @video_str, player, playable, title, description, duration, uploaddate, aspectratio, author, channelid, streams
 
 import FFMPEG
-const date_time_format = "yyyy-mm-ddTHH:MM:SSzzzz"
+parsedatetime(str) = ZonedDateTime(str, "yyyy-mm-ddTHH:MM:SSzzzz")
 
 mutable struct Video
     id::String
@@ -40,7 +40,7 @@ end
 playable(v::Video) = getnode(player(v), "playabilityStatus\\status") == "OK"
 title(v::Video) = getnode(player(v), "videoDetails\\title")
 description(v::Video) = getnode(player(v), "videoDetails\\shortDescription")
-uploaddate(v::Video) = (t -> t ≡ missing ? t : ZonedDateTime(t, date_time_format))(getnode(player(v), "microformat\\playerMicroformatRenderer\\uploadDate"))
+uploaddate(v::Video) = skipmissing(parsedatetime, getnode(player(v), "microformat\\playerMicroformatRenderer\\uploadDate"))
 duration(v::Video) = tryparsenode(Int, player(v), "videoDetails\\lengthSeconds")
 aspectratio(v::Video) = getnode(player(v), "streamingData\\aspectRatio")
 author(v::Video) = getnode(player(v), "videoDetails\\author")
