@@ -76,10 +76,10 @@ function split_mimeType(mimeType::AbstractString)
     return (strip(type), "." * strip(format), map(strip, codecs))
 end
 
-function Base.download(s::Stream, file_path::AbstractString; force = false, kw...)
+function download(s::Stream, file_path::AbstractString; force = false, kw...)
     force || (file_path = Utils.newpath(file_path, true))
     mkpath(dirname(file_path))
     return downloadfile(s.url, file_path, filesize(s); kw...)
 end
-Base.download(s::Stream; force = false, kw...) =
+download(s::Stream; force = false, kw...) =
         download(s, joinpath(default_download_dir, filename(s)); force, kw...)

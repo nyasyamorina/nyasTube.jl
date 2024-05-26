@@ -36,6 +36,13 @@ mutable struct BearerToken
 end
 
 const AllowedTokenTypes = Union{Nothing, BearerToken, AbstractString}
+const _default_token = Ref{AllowedTokenTypes}(nothing)
+function default_bearer_token()::BearerToken
+    if ~(_default_token[] isa BearerToken)
+        _default_token[] = BearerToken()
+    end
+    return _default_token[]
+end
 
 BearerToken() = BearerToken(missing, max_time, missing)
 BearerToken(access::String) = BearerToken(access, max_time, missing)
@@ -53,7 +60,7 @@ end
 "refresh the bearer token"
 function refresh!(token::BearerToken; force = false)
     force || token.expires < time() || return
-    token.refresh ≡ missing && throw(MissingException("need to provide `BearerToken::refresh`"))
+    token.refresh ≡ missing && throw(MissingException("`refresh` feild must be provided to refresh token."))
     start = trunc(Int, time()) - 30
     body = Dict(
         "client_id"     => tv_client_id,
@@ -77,8 +84,8 @@ function fetch!(token::BearerToken)
     )
     response = nyasHttp.post(req_opts, "https://oauth2.googleapis.com/device/code", [json_content_header], encodebody(body))
     response_json = JSON.parse(String(response.body))
-    println("open \"$(response_json.verification_url)\" on browser,\nand input code \"$(response_json.user_code)\"")
-    println("press enter after completing this step"); readline()
+    println("open \"$(response_json["verification_url"])\" on browser, and input code \"$(response_json["user_code"])\".")
+    println("press enter after completing this step..."); readline()
     body = Dict(
         "client_id"     => tv_client_id,
         "client_secret" => tv_client_secret,
@@ -94,7 +101,7 @@ function fetch!(token::BearerToken)
 end
 
 "fetch a bearer token, need to do some something on your browser"
-fetch_bearer_token() = fetch!(BearerToken())
+fetch_bearer_token(new = false) = fetch!(new ? BearerToken() : default_bearer_token())
 
 "use client type to specify some request value `{\"context\": {\"client\": {...}}}`"
 mutable struct ClientType
@@ -102,7 +109,7 @@ mutable struct ClientType
     user_agent::String
 end
 
-function (client::ClientType)(endpoint, body; token::AllowedTokenTypes = nothing)
+function (client::ClientType)(endpoint, body; token::AllowedTokenTypes = _default_token[])
     query = Dict{String, Any}("prettyPrint" => false)
     headers = [json_content_header, "user-agent" => client.user_agent]
     if token ≡ nothing

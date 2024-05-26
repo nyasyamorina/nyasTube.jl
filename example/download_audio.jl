@@ -5,13 +5,16 @@ using Pkg
 const nyasTube_path = dirname(@__DIR__)
 Pkg.activate(nyasTube_path)
 using HTTP, nyasHttp, nyasTube, JSON
+using nyasTube.APIs: max_time, default_bearer_token, fetch_bearer_token
+using nyasTube.Utils: safefilename
 
 const proxy = get(ENV, "nyasProxy", "")
 isempty(proxy) || setoptions!(nyasTube.req_opts; proxy)
 
-const cache_path = joinpath(nyasTube.cache_dir, "channelid_name.json")
-channelid_name = if isfile(cache_path)
-    JSON.parsefile(cache_path; dicttype = Dict{String, String})
+const cache_token_path  = joinpath(nyasTube.cache_dir, "cache_token.json")
+const cache_subdir_path = joinpath(nyasTube.cache_dir, "channelid_name.json")
+channelid_name = if isfile(cache_subdir_path)
+    JSON.parsefile(cache_subdir_path; dicttype = Dict{String, String})
 else
     Dict{String, String}()
 end
@@ -38,6 +41,74 @@ else
 end
 
 
+function processlogin(video)
+    if status(video) == "LOGIN_REQUIRED"
+        got_token = false
+        if isfile(cache_token_path)
+            token = JSON.parsefile(cache_token_path)
+            bearer_token = default_bearer_token()
+            bearer_token.access  = get(token, "access",  missing)
+            bearer_token.expires = get(token, "expires", max_time)
+            bearer_token.refresh = get(token, "refresh", missing)
+            got_token = ~(bearer_token.access ≡ missing && bearer_token.refresh ≡ missing)
+        end
+        if ~got_token
+            println()
+            @info "need to login to get the information of this video. (just exit if don't want to login)"
+            fetch_bearer_token()
+            println(" <- do you want to cache your login data? [Y/N, default = N]")
+            if uppercase(first(readline())) == 'Y'
+                # TODO: auto cache token if the original token is loaded from drive, because token may be refreshed
+                open(cache_token_path; write = true) do file
+                    JSON.print(file, default_bearer_token(), 4)
+                end
+            end
+            println()
+        end
+        player(video; force = true)
+    end
+end
+
+function getfilename(stream)
+    file_name = nyasTube.filename(stream)
+    println("\n <- enter file tile [default: $file_name]")
+    _file_name = readline()
+    isempty(_file_name) || (file_name = safefilename(_file_name))
+    splitext(file_name)[2] == stream.format || (file_name *= stream.format)
+    return file_name
+end
+function getsubdir(video)
+    cid = channelid(video)
+    sub_dir = get(channelid_name, cid, "")
+    println("\n <- enter sub-dir save to [default: $(isempty(sub_dir) ? "<top-level>" : sub_dir)]")
+    _sub_dir = readline()
+    if ~isempty(_sub_dir)
+        sub_dir = safefilename(_sub_dir)
+        channelid_name[cid] = sub_dir
+        open(cache_subdir_path; write = true) do file
+            JSON.print(file, channelid_name, 4)
+        end
+    end
+    return sub_dir
+end
+function getthreads()
+    threads = 16
+    println()
+    while true
+        println(" <- enter # of downloading threads [default: $threads]")
+        sss = readline()
+        isempty(sss) && break
+        _threads = tryparse(Int, sss)
+        _threads ≢ nothing && (threads = _threads; break)
+        println("\"$sss\" is not a valid integer")
+    end
+    if has_aria2 && threads > 16
+        @info "aria2 only supports # of threads from 1 to 16, clamp # of threads to 16."
+        threads = 16
+    end
+    return threads
+end
+
 function printerror()
     println()
     for (exc, bt) ∈ current_exceptions()
@@ -48,7 +119,7 @@ end
 
 function retryornot()
     println("\n <- press [enter] to continue, press [R] end [enter] to retry")
-    char = first(uppercase(readline()))
+    char = uppercase(first(readline()))
     return char == 'R'
 end
 
@@ -64,53 +135,35 @@ end
 function getdownloadinfo(url)
     while true
         println("\ngetting video information...")
+        v = nyasTube.Video(url; client = nyasTube.APIs.WEB)
 
         try
-            v = nyasTube.Video(url; client = nyasTube.APIs.WEB)
-            s = getaudiostream(v)
-
             println("================================")
             println("title: ", title(v))
             println("upload: ", uploaddate(v))
             println("author: ", author(v))
             println("channel id: ", channelid(v))
-            if s.filesize ≢ missing
-                println("file size: ", s.filesize ÷ 10^4 / 10^2, "MB")
-            end
 
-            file_name = nyasTube.filename(s)
-            println("\n <- enter file tile [default: $file_name]")
-            _file_name = readline()
-            isempty(_file_name) || (file_name = nyasTube.Utils.safefilename(_file_name))
-            splitext(file_name)[2] == s.format || (file_name *= s.format)
+            # maybe just process once per script run instead of every video?
+            processlogin(v)
 
-            cid = channelid(v)
-            sub_dir = get(channelid_name, cid, "")
-            println("\n <- enter sub-dir save to [default: $(isempty(sub_dir) ? "<top-level>" : sub_dir)]")
-            _sub_dir = readline()
-            if ~isempty(_sub_dir)
-                sub_dir = nyasTube.Utils.safefilename(_sub_dir)
-                channelid_name[cid] = sub_dir
-                open(cache_path; write = true) do file
-                    JSON.print(file, channelid_name, 4)
-                end
-            end
+            s = getaudiostream(v)
+            s.filesize ≢ missing && println("file size: ", s.filesize ÷ 10^4 / 10^2, "MB")
 
-            threads = 16
-            println()
-            while true
-                println(" <- enter # of downloading threads [default: $threads]")
-                sss = readline()
-                isempty(sss) && break
-                _threads = tryparse(Int, sss)
-                _threads ≢ nothing && (threads = _threads; break)
-                println("\"$sss\" is not a valid integer")
-            end
-
+            file_name = getfilename(s)
+            sub_dir = getsubdir(v)
+            threads = getthreads()
             return (s.url, file_name, sub_dir, threads)
 
         catch err
-            err isa InterruptException || printerror()
+            if err isa nyasTube.NodeNotFoundException
+                @error "could not find node: \"$(err.path)\""
+                println("status: \"$(status(v))\"")
+            elseif err isa HTTP.StatusError
+                @error "got en error code: " err.status
+            else
+                err isa InterruptException || printerror()
+            end
             retryornot() || return
         end
     end
@@ -145,7 +198,7 @@ end
 
 
 function one_audio()
-    println("\n <- enter url, exit if no url")
+    println("\n <- enter url, exit if empty")
     url = readline()
     isempty(url) && exit()
 

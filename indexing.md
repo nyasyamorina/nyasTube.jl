@@ -21,7 +21,7 @@
 - channel(::Video):Channel
 - streams(::Video)::Vector{Stream}
 
-- download(::Video, *[path::String]*; *[force::Bool]*, *[threads::Int]*)::String
+- nyasTube.download(::Video, *[path::String]*; *[force::Bool]*, *[threads::Int]*)::String
 
 ---
 
@@ -46,4 +46,4 @@
 - video_quality::Sorter
 - audio_quality::Sorter
 
-- download(::Stream, *[path::Stream]*; *[force::Bool]*, *[threads::Int]*)::String
+- nyasTube.download(::Stream, *[path::Stream]*; *[force::Bool]*, *[threads::Int]*)::String

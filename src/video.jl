@@ -1,4 +1,4 @@
-export @video_str, player, playable, title, description, duration, uploaddate, aspectratio, author, channelid, streams
+export @video_str, player, status, playable, title, description, duration, uploaddate, aspectratio, author, channelid, streams
 
 import FFMPEG
 parsedatetime(str) = ZonedDateTime(str, "yyyy-mm-ddTHH:MM:SSzzzz")
@@ -31,13 +31,14 @@ end
 
 # TODO: error handling for unplayable video, ie, live streaming, age restricted or so on
 
-function player(v::Video, c = v.client; client = c)
-    v.player ≢ missing && client == v.client && return v.player
+function player(v::Video, c = v.client; client = c, force = false)
+    ~force && v.player ≢ missing && client == v.client && return v.player
     v.player = APIs.player(v.id; client)
     return v.player
 end
 
-playable(v::Video) = getnode(player(v), "playabilityStatus\\status") == "OK"
+status(v::Video) = getnode(player(v), "playabilityStatus\\status")
+playable(v::Video) = status(v) == "OK"
 title(v::Video) = getnode(player(v), "videoDetails\\title")
 description(v::Video) = getnode(player(v), "videoDetails\\shortDescription")
 uploaddate(v::Video) = skipmissing(parsedatetime, getnode(player(v), "microformat\\playerMicroformatRenderer\\uploadDate"))
@@ -56,7 +57,7 @@ function stream_dicts(v::Video)
     return dicts
 end
 
-function Base.download(v::Video, file_path::AbstractString; force = false, kw...)
+function download(v::Video, file_path::AbstractString; force = false, kw...)
     force || (file_path = Utils.newpath(file_path, true))
     dir = dirname(file_path)
     mkpath(dir)
@@ -78,5 +79,5 @@ function Base.download(v::Video, file_path::AbstractString; force = false, kw...
     rm(video_path); rm(audio_path)
     return file_path
 end
-Base.download(v::Video; force = false, kw...) =
+download(v::Video; force = false, kw...) =
         download(v, joinpath(default_download_dir, Utils.safefilename(title(v) * ".mp4")); force, kw...)

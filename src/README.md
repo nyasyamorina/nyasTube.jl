@@ -22,7 +22,7 @@ Then you can use it to download a youtube video (at least that's how it works id
 video = nyasTube.Video("https://www.youtube.com/watch?v=Lworfif9Ck4")
 video = nyasTube.video"https://www.youtube.com/watch?v=Lworfif9Ck4" # use string macro
 # download the best quality video stream with the best audio
-download(video, "path/to/file.mp4"; threads = 16)
+nyasTube.download(video, "path/to/file.mp4"; threads = 16)
 ```
 
 And also you can select your favorite stream
@@ -37,7 +37,7 @@ sort!(streams; by = -nyasTube.video_quality >> - nyasTube.audio_quality)
 stream = streams[1]
 # then download it or do something interesting
 file_size = nyasTube.filesize(stream)
-download(stream, "path/to/dir/$(nyasTube.filename(stream))")
+nyasTube.download(stream, "path/to/dir/$(nyasTube.filename(stream))")
 ```
 
 Or maybe you just a low-level API enthusiast
